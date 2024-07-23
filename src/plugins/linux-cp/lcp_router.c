@@ -1184,6 +1184,42 @@ lcp_router_route_path_parse (struct rtnl_nexthop *rnh, void *arg)
 }
 
 /*
+ * Check if there is a need to punt the route.
+ *
+ * This function determines if a route should be punted to the local interface.
+ * A route is punted if it is of a type that requires special handling (e.g.,
+ * RTN_LOCAL, RTN_BROADCAST, RTN_ANYCAST, etc.) and if it has no associated
+ * paths.
+ */
+static bool
+check_if_punted (struct rtnl_route *rr, lcp_router_route_path_parse_t *ctx,
+		 fib_prefix_t *pfx)
+{
+  // If the configuration does not allow routes with no paths, return false
+  if (!lcp_get_route_no_paths ())
+    return false;
+
+  // If there are any paths associated with the route, return false
+  if (vec_len (ctx->paths) > 0)
+    return false;
+
+  // If the route type is blackhole or higher, return false
+  if (rtnl_route_get_type (rr) >= RTN_BLACKHOLE)
+    return false;
+
+  // If the route is IPv6 and either multicast or link-local unicast, return false
+  if (FIB_PROTOCOL_IP6 == pfx->fp_proto &&
+      (ip6_address_is_multicast (&pfx->fp_addr.ip6) ||
+       ip6_address_is_link_local_unicast (&pfx->fp_addr.ip6)))
+    return false;
+
+  LCP_ROUTER_DBG ("Punting route");
+
+  // Otherwise, the route should be punted
+  return true;
+}
+
+/*
  * blackhole, unreachable, prohibit will not have a next hop in an
  * RTM_NEWROUTE. Add a path for them.
  */
@@ -1193,7 +1229,7 @@ lcp_router_route_path_add_special (struct rtnl_route *rr,
 {
   fib_route_path_t *path;
 
-  if (rtnl_route_get_type (rr) < RTN_BLACKHOLE)
+  if (rtnl_route_get_type (rr) < RTN_BLACKHOLE && !(lcp_get_route_no_paths ()))
     return;
 
   /* if it already has a path, it does not need us to add one */
@@ -1202,8 +1238,21 @@ lcp_router_route_path_add_special (struct rtnl_route *rr,
 
   vec_add2 (ctx->paths, path, 1);
 
-  path->frp_flags = FIB_ROUTE_PATH_FLAG_NONE | ctx->type_flags;
-  path->frp_sw_if_index = ~0;
+  /* If there are no paths, and `lcp param route-no-paths` is enabled
+   * we need to add an extra local path. This allows punting traffic
+   * with destinations available only via kernel */
+  if (lcp_get_route_no_paths ())
+    {
+      path->frp_flags = FIB_ROUTE_PATH_LOCAL | ctx->type_flags;
+    } else {
+      path->frp_flags = FIB_ROUTE_PATH_FLAG_NONE | ctx->type_flags;
+    }
+
+  /* Do not add interface to routes from kernel */
+  if (rtnl_route_get_protocol (rr) != RTPROT_KERNEL) {
+    path->frp_sw_if_index = ~0;
+  }
+
   path->frp_proto = fib_proto_to_dpo (ctx->route_proto);
   path->frp_preference = ctx->preference;
 
@@ -1290,7 +1339,17 @@ lcp_router_route_del (struct rtnl_route *rr)
   };
 
   rtnl_route_foreach_nexthop (rr, lcp_router_route_path_parse, &np);
-  lcp_router_route_path_add_special (rr, &np);
+
+  if (check_if_punted (rr, &np, &pfx))
+    {
+      fib_table_entry_special_remove (nlt->nlt_fib_index, &pfx,
+              lcp_router_proto_fib_source (rproto));
+      return;
+    }
+  else
+    {
+      lcp_router_route_path_add_special (rr, &np);
+    }
 
   if (0 != vec_len (np.paths))
     {
@@ -1360,17 +1419,7 @@ lcp_router_route_add (struct rtnl_route *rr, int is_replace)
   entry_flags = lcp_router_route_mk_entry_flags (rtype, table_id, rproto);
 
   nlt = lcp_router_table_add_or_lock (table_id, pfx.fp_proto);
-  /* Skip any kernel routes and IPv6 LL or multicast routes */
-  if (rproto == RTPROT_KERNEL ||
-      (FIB_PROTOCOL_IP6 == pfx.fp_proto &&
-       (ip6_address_is_multicast (&pfx.fp_addr.ip6) ||
-	ip6_address_is_link_local_unicast (&pfx.fp_addr.ip6))))
-    {
-      LCP_ROUTER_DBG ("route skip: %d:%U %U", rtnl_route_get_table (rr),
-		      format_fib_prefix, &pfx, format_fib_entry_flags,
-		      entry_flags);
-      return;
-    }
+
   LCP_ROUTER_DBG ("route %s: %d:%U %U", is_replace ? "replace" : "add",
 		  rtnl_route_get_table (rr), format_fib_prefix, &pfx,
 		  format_fib_entry_flags, entry_flags);
@@ -1383,7 +1432,34 @@ lcp_router_route_add (struct rtnl_route *rr, int is_replace)
   };
 
   rtnl_route_foreach_nexthop (rr, lcp_router_route_path_parse, &np);
-  lcp_router_route_path_add_special (rr, &np);
+
+  if (check_if_punted (rr, &np, &pfx))
+    {
+      fib_source_t fib_src = lcp_router_proto_fib_source (rproto);
+      if (is_replace)
+	{
+	  fib_table_entry_special_remove (nlt->nlt_fib_index, &pfx, fib_src);
+	}
+
+      fib_table_entry_special_add (nlt->nlt_fib_index, &pfx, fib_src,
+				   FIB_ENTRY_FLAG_LOCAL);
+      return;
+    }
+  else
+    {
+      /* Skip any kernel routes and IPv6 LL or multicast routes */
+      if ((rproto == RTPROT_KERNEL) ||
+	  (FIB_PROTOCOL_IP6 == pfx.fp_proto &&
+	   (ip6_address_is_multicast (&pfx.fp_addr.ip6) ||
+	    ip6_address_is_link_local_unicast (&pfx.fp_addr.ip6))))
+	{
+	  LCP_ROUTER_DBG ("route skip: %d:%U %U", rtnl_route_get_table (rr),
+			  format_fib_prefix, &pfx, format_fib_entry_flags,
+			  entry_flags);
+	  return;
+	}
+      lcp_router_route_path_add_special (rr, &np);
+    }
 
   if (0 != vec_len (np.paths))
     {
