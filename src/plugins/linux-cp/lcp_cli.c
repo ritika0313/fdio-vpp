@@ -393,6 +393,21 @@ VLIB_CLI_COMMAND (lcp_ethertype_show_command, static) = {
   .function = lcp_ethertype_show_cmd,
 };
 
+static clib_error_t *
+lcp_resync_command_fn (vlib_main_t *vm, unformat_input_t *input,
+				vlib_cli_command_t *cmd)
+{
+  lcp_resync_state (vm);
+
+  return NULL;
+}
+
+VLIB_CLI_COMMAND (lcp_resync_command, static) = {
+  .path = "lcp resync",
+  .short_help = "lcp resync",
+  .function = lcp_resync_command_fn,
+};
+
 clib_error_t *
 lcp_cli_init (vlib_main_t *vm)
 {

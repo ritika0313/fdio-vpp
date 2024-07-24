@@ -314,6 +314,18 @@ vl_api_lcp_ethertype_get_t_handler (vl_api_lcp_ethertype_get_t *mp)
   vec_free (ethertypes);
 }
 
+static void
+vl_api_lcp_resync_t_handler (vl_api_lcp_resync_t *mp)
+{
+  vl_api_lcp_resync_reply_t *rmp;
+  int rv = 0;
+  vlib_main_t *vm = vlib_get_main ();
+
+  lcp_resync_state (vm);
+
+  REPLY_MACRO_END (VL_API_LCP_RESYNC_REPLY);
+}
+
 /*
  * Set up the API message handling tables
  */

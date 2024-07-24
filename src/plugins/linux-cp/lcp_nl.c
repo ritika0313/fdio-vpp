@@ -43,6 +43,7 @@ typedef enum nl_status_t_
 {
   NL_STATUS_NOTIF_PROC,
   NL_STATUS_SYNC,
+  NL_STATUS_USER_SYNC
 } nl_status_t;
 
 typedef enum nl_sock_type_t_
@@ -66,6 +67,7 @@ typedef enum nl_event_type_t_
 {
   NL_EVENT_READ,
   NL_EVENT_ERR,
+  NL_EVENT_SYNC
 } nl_event_type_t;
 
 typedef struct nl_main
@@ -581,6 +583,12 @@ nl_route_process (vlib_main_t *vm, vlib_node_runtime_t *node,
 			    DAY_F64;
 	      break;
 
+	    /* Initiate synchronization if requested by user
+	     */
+	    case NL_EVENT_SYNC:
+	      nm->nl_status = NL_STATUS_USER_SYNC;
+	      break;
+
 	    /* Initiate synchronization if there was an error polling or
 	     * reading the notification socket
 	     */
@@ -592,13 +600,21 @@ nl_route_process (vlib_main_t *vm, vlib_node_runtime_t *node,
 	      NL_ERROR ("Unknown event type: %u", (u32) event_type);
 	    }
 	}
-      else if (nm->nl_status == NL_STATUS_SYNC)
+      else if (nm->nl_status == NL_STATUS_SYNC || nm->nl_status == NL_STATUS_USER_SYNC)
 	{
 	  /* Stop processing notifications - close the notification socket and
 	   * discard all messages that are currently in the queue
 	   */
 	  lcp_nl_close_socket ();
 	  lcp_nl_route_discard_msgs ();
+
+	    /* Clean VPP routing tables
+	     */
+	    if (nm->nl_status == NL_STATUS_USER_SYNC)
+	  {
+		  nl_route_sync_begin();
+		  nl_route_sync_end();
+	  }
 
 	  /* Wait some time before next synchronization attempt. Allows to
 	   * reduce the number of failed attempts that stall the main thread by

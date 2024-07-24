@@ -1194,6 +1194,17 @@ lcp_itf_pair_replace_end (void)
   return (0);
 }
 
+void
+lcp_resync_state (vlib_main_t *vm)
+{
+  /* Send event of type NL_EVENT_SYNC to linux-cp-netlink node.
+   * As a result all ip fib entries installed by this node will be removed from VPP.
+   * And Netlink full dump will be initiated.
+   */
+  vlib_node_t *n = vlib_get_node_by_name (vm, (u8 *) "linux-cp-netlink-process");
+  vlib_process_signal_event (vm, n->index, 2, 0);
+}
+
 static clib_error_t *
 lcp_itf_pair_link_up_down (vnet_main_t *vnm, u32 hw_if_index, u32 flags)
 {
