@@ -138,11 +138,6 @@ extern int lcp_itf_pair_replace_begin (void);
 extern int lcp_itf_pair_replace_end (void);
 
 /**
- * Resync with Linux state
- */
-extern void lcp_resync_state (vlib_main_t *vm);
-
-/**
  * Retreive the pair in the DP
  */
 extern index_t *lip_db_by_phy;

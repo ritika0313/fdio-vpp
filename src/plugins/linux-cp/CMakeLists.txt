@@ -71,10 +71,14 @@ add_vpp_plugin(linux_cp_unittest
 
 add_vpp_plugin(linux_nl
   SOURCES
+  lcp_nl_api.c
   lcp_router.c
   lcp_nl.c
   lcp_ipsec.c
   lcp_xfrm_nl.c
+
+  API_FILES
+  lcp_nl.api
 
   LINK_LIBRARIES
   ${LIBNL3_XFRM_LIB}

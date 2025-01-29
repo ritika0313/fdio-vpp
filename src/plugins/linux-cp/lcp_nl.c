@@ -92,6 +92,8 @@ typedef struct nl_main
   u32 sync_batch_delay_ms;
   u32 sync_attempt_delay_ms;
 
+  volatile bool is_syncing;
+
 } nl_main_t;
 
 #define NL_RX_BUF_SIZE_DEF    (1 << 27) /* 128 MB */
@@ -710,6 +712,7 @@ nl_route_process (vlib_main_t *vm, vlib_node_runtime_t *node,
 #define _(stype, mtype, tname, fn) lcp_nl_close_sync_socket (stype);
 	  foreach_sock_type
 #undef _
+	  nm->is_syncing = 0;
 	}
       else
 	NL_ERROR ("Unknown status: %d", nm->nl_status);
@@ -1020,6 +1023,41 @@ lcp_nl_close_sync_socket (nl_sock_type_t sock_type)
       nm->sk_route_sync[sock_type] = NULL;
     }
 }
+
+void
+lcp_resync_state (vlib_main_t *vm)
+{
+  nl_main_t *nm = &nl_main;
+  nm->is_syncing = 1;
+
+  /* Send event of type NL_EVENT_SYNC to linux-cp-netlink node.
+   * As a result all ip fib entries installed by this node will be removed from
+   * VPP. And Netlink full dump will be initiated.
+   */
+  vlib_node_t *n =
+    vlib_get_node_by_name (vm, (u8 *) "linux-cp-netlink-process");
+  vlib_process_signal_event (vm, n->index, 2, 0);
+
+  while (nm->is_syncing)
+    {
+      vlib_process_suspend (vm, 1);
+    }
+}
+
+static clib_error_t *
+lcp_resync_command_fn (vlib_main_t *vm, unformat_input_t *input,
+		       vlib_cli_command_t *cmd)
+{
+  lcp_resync_state (vm);
+
+  return NULL;
+}
+
+VLIB_CLI_COMMAND (lcp_resync_command, static) = {
+  .path = "lcp resync",
+  .short_help = "lcp resync",
+  .function = lcp_resync_command_fn,
+};
 
 #include <vnet/plugin/plugin.h>
 clib_error_t *
