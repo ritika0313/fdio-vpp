@@ -117,6 +117,7 @@ DEB_DEPENDS += jq # for extracting test summary from .json report (hs-test)
 DEB_DEPENDS += libiberty-dev
 DEB_DEPENDS += nasm libnuma-dev # for make-ext-deps
 DEB_DEPENDS += libnl-xfrm-3-200 # for linux-cp XFRM extension
+DEB_DEPENDS += libunwind8 # for linux-cp XFRM extension
 
 LIBFFI=libffi6 # works on all but 20.04 and debian-testing
 ifeq ($(OS_VERSION_ID),24.04)
@@ -148,6 +149,7 @@ else ifeq ($(OS_ID)-$(OS_VERSION_ID),debian-11)
 else ifeq ($(OS_ID)-$(OS_VERSION_ID),debian-12)
 	DEB_DEPENDS += virtualenv
 	DEB_DEPENDS += clang-14 clang-format-15
+        DEB_DEPENDS += llvm
 	# for extras/scripts/checkstyle.sh
 	# TODO: remove once ubuntu 20.04 is deprecated and extras/scripts/checkstyle.sh is upgraded to -15
 	export CLANG_FORMAT_VER=15
