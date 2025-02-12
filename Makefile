@@ -116,6 +116,7 @@ DEB_DEPENDS += tshark
 DEB_DEPENDS += jq # for extracting test summary from .json report (hs-test)
 DEB_DEPENDS += libiberty-dev
 DEB_DEPENDS += nasm libnuma-dev # for make-ext-deps
+DEB_DEPENDS += libnl-xfrm-3-200 # for linux-cp XFRM extension
 
 LIBFFI=libffi6 # works on all but 20.04 and debian-testing
 ifeq ($(OS_VERSION_ID),24.04)
