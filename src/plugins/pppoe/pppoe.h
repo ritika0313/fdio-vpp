@@ -196,6 +196,7 @@ typedef struct
   vnet_main_t *vnet_main;
 
   u8 is_auto_discovery;
+  u8 is_pass_nd_and_dhcpv6;
 
 } pppoe_main_t;
 

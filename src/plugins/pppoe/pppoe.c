@@ -1024,6 +1024,8 @@ pppoe_config (vlib_main_t *vm, unformat_input_t *input)
     {
       if (unformat (input, "enable-auto-discovery"))
 	pem->is_auto_discovery = 1;
+      else if (unformat (input, "enable-pass-nd-and-dhcpv6"))
+	pem->is_pass_nd_and_dhcpv6 = 1;
       else
 	return clib_error_return (0, "invalid pppoe option: %U",
 				  format_unformat_error, input);

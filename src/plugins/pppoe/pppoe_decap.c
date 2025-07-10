@@ -47,7 +47,7 @@ static u8 * format_pppoe_rx_trace (u8 * s, va_list * args)
 }
 
 static inline int
-is_control_plane_packet (pppoe_header_t *pppoe0, bool is_auto_discovery)
+is_control_plane_packet (pppoe_header_t *pppoe0, bool is_pass_nd_and_dhcpv6)
 {
   u16 ppp_proto = clib_net_to_host_u16 (pppoe0->ppp_proto);
 
@@ -56,12 +56,13 @@ is_control_plane_packet (pppoe_header_t *pppoe0, bool is_auto_discovery)
 
   if (ppp_proto == PPP_PROTOCOL_ip6)
     {
-      if (!is_auto_discovery)
+      if (!is_pass_nd_and_dhcpv6)
 	return 0;
 
       ip6_header_t *ip6 =
 	(ip6_header_t *) ((u8 *) pppoe0 + sizeof (pppoe_header_t));
-      if (ip6->protocol == IP_PROTOCOL_ICMP6)
+      icmp46_header_t *icmp = (icmp46_header_t *)(ip6 + 1);
+      if (ip6->protocol == IP_PROTOCOL_ICMP6 && (icmp->type == ICMP6_router_solicitation || icmp->type == ICMP6_router_advertisement))
 	{
 	  return 1;
 	}
@@ -186,7 +187,7 @@ VLIB_NODE_FN (pppoe_input_node) (vlib_main_t * vm,
           ppp_proto0 = clib_net_to_host_u16(pppoe0->ppp_proto);          
 
           /* Manipulate packet 0 */
-		  if (is_control_plane_packet(pppoe0, pem->is_auto_discovery))
+		  if (is_control_plane_packet(pppoe0, pem->is_pass_nd_and_dhcpv6))
             {
 		  vlan0 == 0 ?
 	  	    vlib_buffer_advance(b0, sizeof(*h0))
@@ -283,7 +284,7 @@ VLIB_NODE_FN (pppoe_input_node) (vlib_main_t * vm,
 		  ppp_proto1 = clib_net_to_host_u16(pppoe1->ppp_proto);
 
           /* Manipulate packet 1 */
-          if (is_control_plane_packet(pppoe1, pem->is_auto_discovery))
+          if (is_control_plane_packet(pppoe1, pem->is_pass_nd_and_dhcpv6))
             {
 		  vlan1 == 0 ?
 	  	    vlib_buffer_advance(b1, sizeof(*h1))
@@ -410,7 +411,7 @@ VLIB_NODE_FN (pppoe_input_node) (vlib_main_t * vm,
 
           ppp_proto0 = clib_net_to_host_u16(pppoe0->ppp_proto);   
 
-          if (is_control_plane_packet(pppoe0, pem->is_auto_discovery))
+          if (is_control_plane_packet(pppoe0, pem->is_pass_nd_and_dhcpv6))
             {
 		  vlan0 == 0 ?
 	  	    vlib_buffer_advance(b0, sizeof(*h0))
