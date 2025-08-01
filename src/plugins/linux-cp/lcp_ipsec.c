@@ -633,18 +633,14 @@ nl_xfrm_sa_del (struct xfrmnl_sa *sa)
 ipsec_sa_t *
 get_sa_by_sa_id (u32 sa_id)
 {
-  ipsec_sa_t *sa;
-  u32 sai;
+  ipsec_main_t *im = &ipsec_main;
+  uword *p;
 
-  pool_foreach_index (sai, ipsec_sa_pool)
-    {
-      sa = ipsec_sa_get (sai);
-      if (!sa)
-	return NULL;
-      if (sa_id == sa->id)
-	return sa;
-    }
-  return NULL;
+  p = hash_get (im->sa_index_by_sa_id, sa_id);
+  if (!p)
+    return NULL;
+
+  return ipsec_sa_get (p[0]);
 }
 
 ipsec_sa_t *
@@ -653,11 +649,12 @@ get_reverse_sa_by_tun_ip (ip_address_t *saddr, ip_address_t *daddr, u8 is_ipv6,
 {
   sa_life_limits_t *life = NULL;
   ipsec_sa_t *sa;
+  ipsec_main_t *im = &ipsec_main;
   u8 found = 0;
   uword *p = NULL;
   u32 sai;
 
-  pool_foreach_index (sai, ipsec_sa_pool)
+  pool_foreach_index (sai, im->sa_pool)
     {
       sa = ipsec_sa_get (sai);
       if (!sa)
@@ -894,7 +891,7 @@ nl_xfrm_sa_add (struct xfrmnl_sa *sa)
   u32 spi = xfrmnl_sa_get_spi (sa);
   struct nl_addr *encap_oa = NULL;
   u8 ip_family, mode, is_ipv6, dir;
-  u32 salt = 0, icv = 0, sai = 0, id = 0;
+  u32 salt = 0, sai = 0, id = 0;
   ipsec_protocol_t proto = 0;
   ip_address_t saddr, daddr;
   int if_idx, sw_if_index;
@@ -954,32 +951,27 @@ nl_xfrm_sa_add (struct xfrmnl_sa *sa)
     (50 == xfrmnl_sa_get_proto (sa)) ? IPSEC_PROTOCOL_ESP : IPSEC_PROTOCOL_AH;
   ip_family = xfrmnl_sa_get_family (sa);
 
-  if (-1 != xfrmnl_sa_get_aead_params (sa, alg_name, &key_len, &icv, key))
-    flags |= IPSEC_SA_FLAG_IS_AEAD;
-  else
+  if (-1 == xfrmnl_sa_get_crypto_params (sa, alg_name, &key_len, key))
     {
-      if (-1 == xfrmnl_sa_get_crypto_params (sa, alg_name, &key_len, key))
-	{
-	  NL_XFRM_ERR ("crypto param extraction failed");
-	  goto error;
-	}
-      if (-1 == xfrmnl_sa_get_auth_params (sa, auth_alg_name, &auth_key_len,
-					   NULL, auth_key))
-	{
-	  NL_XFRM_ERR ("auth param extraction failed");
-	  goto error;
-	}
-
-      get_auth_algo (auth_alg_name, auth_key_len, &integ_alg);
-      if (integ_alg == IPSEC_INTEG_N_ALG)
-	{
-	  NL_XFRM_ERR ("Invalid/Unsupported integ algo: %s keylen: %u",
-		       auth_alg_name, auth_key_len);
-	  goto error;
-	}
-      ik.len = auth_key_len / 8;
-      clib_memcpy_fast (ik.data, (u8 *) auth_key, (auth_key_len / 8));
+      NL_XFRM_ERR ("crypto param extraction failed");
+      goto error;
     }
+  if (-1 == xfrmnl_sa_get_auth_params (sa, auth_alg_name, &auth_key_len, NULL,
+				       auth_key))
+    {
+      NL_XFRM_ERR ("auth param extraction failed");
+      goto error;
+    }
+
+  get_auth_algo (auth_alg_name, auth_key_len, &integ_alg);
+  if (integ_alg == IPSEC_INTEG_N_ALG)
+    {
+      NL_XFRM_ERR ("Invalid/Unsupported integ algo: %s keylen: %u",
+		   auth_alg_name, auth_key_len);
+      goto error;
+    }
+  ik.len = auth_key_len / 8;
+  clib_memcpy_fast (ik.data, (u8 *) auth_key, (auth_key_len / 8));
 
   get_crypto_algo (alg_name, key_len, &crypto_alg);
   if (crypto_alg == IPSEC_CRYPTO_N_ALG)
@@ -1568,9 +1560,10 @@ check_for_expiry ()
   vlib_counter_t count;
   uword *p = NULL;
   ipsec_sa_t *sa = NULL;
+  ipsec_main_t *im = &ipsec_main;
   int rv = 0;
 
-  pool_foreach (sa, ipsec_sa_pool)
+  pool_foreach (sa, im->sa_pool)
     {
       p = hash_get (lifetime_by_sa_id, sa->id);
       if (!p)

@@ -20,7 +20,7 @@
 
 #include <linux-cp/lcp_xfrm.h>
 #include <plugins/linux-cp/lcp_interface.h>
-#include <vlib/unix/unix.h>
+#include <vlib/file.h>
 #include <vppinfra/error.h>
 #include <vppinfra/linux/netns.h>
 

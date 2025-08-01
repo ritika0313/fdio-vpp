@@ -79,6 +79,11 @@
       }                                                                       \
   }
 
+#define IPSEC_CRYPTO_ALG_IS_GCM(_alg)                     \
+  (((_alg == IPSEC_CRYPTO_ALG_AES_GCM_128) ||             \
+    (_alg == IPSEC_CRYPTO_ALG_AES_GCM_192) ||             \
+    (_alg == IPSEC_CRYPTO_ALG_AES_GCM_256)))
+
 typedef void (*nl_rt_sa_cb_t) (struct xfrmnl_sa *sa);
 typedef void (*nl_rt_sp_cb_t) (struct xfrmnl_sp *sp);
 
