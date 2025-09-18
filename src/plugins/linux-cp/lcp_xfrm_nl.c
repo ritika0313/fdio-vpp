@@ -558,6 +558,10 @@ lcp_xfrm_itf_pair_config (vlib_main_t *vm, unformat_input_t *input)
     return clib_error_return (
       0, "enable-route-mode-ipsec configuration is missing");
 
+  lcp_xfrm_nl_open_socket ();
+  vlib_process_signal_event (vlib_get_main (),
+			     ipsec_xfrm_expire_process_node.index, 0, 0);
+
   return NULL;
 }
 
@@ -658,9 +662,6 @@ lcp_nl_xfrm_init (vlib_main_t *vm)
   nm->clib_file_index = ~0;
   nm->nl_logger = vlib_log_register_class ("nl", "xfrm");
 
-  lcp_xfrm_nl_open_socket ();
-  vlib_process_signal_event (vlib_get_main (),
-			     ipsec_xfrm_expire_process_node.index, 0, 0);
   return NULL;
 }
 
