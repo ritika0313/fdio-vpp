@@ -882,11 +882,13 @@ nl_xfrm_sa_add (struct xfrmnl_sa *sa)
   ipsec_sa_flags_t flags = IPSEC_SA_FLAG_NONE;
   char key[IPSEC_KEY_MAX_LEN], auth_key[IPSEC_KEY_MAX_LEN];
   char alg_name[ALGO_NAME], auth_alg_name[ALGO_NAME];
+  char aead_alg_name[ALGO_NAME];
   struct nl_addr *dst = xfrmnl_sa_get_daddr (sa);
   struct nl_addr *src = xfrmnl_sa_get_saddr (sa);
   unsigned int udp_src, udp_dst, encap_type;
   sa_life_limits_t *life = NULL, lifetime;
   unsigned int key_len, auth_key_len;
+  unsigned int aead_icv_len = 0, aead_key_len = 0;
   ipsec_key_t ck = { 0 }, ik = { 0 };
   u32 spi = xfrmnl_sa_get_spi (sa);
   struct nl_addr *encap_oa = NULL;
@@ -951,27 +953,42 @@ nl_xfrm_sa_add (struct xfrmnl_sa *sa)
     (50 == xfrmnl_sa_get_proto (sa)) ? IPSEC_PROTOCOL_ESP : IPSEC_PROTOCOL_AH;
   ip_family = xfrmnl_sa_get_family (sa);
 
-  if (-1 == xfrmnl_sa_get_crypto_params (sa, alg_name, &key_len, key))
+  if (0 == xfrmnl_sa_get_aead_params (sa, aead_alg_name, &aead_icv_len,
+				      &aead_key_len, key))
     {
-      NL_XFRM_ERR ("crypto param extraction failed");
-      goto error;
+      clib_memset (alg_name, 0, sizeof (alg_name));
+      clib_strncpy (alg_name, aead_alg_name, sizeof (alg_name) - 1);
+      /* aead_key_len is cipher key bits; ip xfrm provides key||salt.
+       * Represent total bits here so downstream salt extraction works. */
+      key_len = aead_key_len + (GCM_SALT_SIZE * 8);
+      /* No separate integrity algorithm when AEAD is used */
+      integ_alg = IPSEC_INTEG_ALG_NONE;
+      auth_key_len = 0;
     }
-  if (-1 == xfrmnl_sa_get_auth_params (sa, auth_alg_name, &auth_key_len, NULL,
-				       auth_key))
+  else
     {
-      NL_XFRM_ERR ("auth param extraction failed");
-      goto error;
-    }
+      if (-1 == xfrmnl_sa_get_crypto_params (sa, alg_name, &key_len, key))
+	{
+	  NL_XFRM_ERR ("crypto param extraction failed");
+	  goto error;
+	}
+      if (-1 == xfrmnl_sa_get_auth_params (sa, auth_alg_name, &auth_key_len,
+					   NULL, auth_key))
+	{
+	  NL_XFRM_ERR ("auth param extraction failed");
+	  goto error;
+	}
 
-  get_auth_algo (auth_alg_name, auth_key_len, &integ_alg);
-  if (integ_alg == IPSEC_INTEG_N_ALG)
-    {
-      NL_XFRM_ERR ("Invalid/Unsupported integ algo: %s keylen: %u",
-		   auth_alg_name, auth_key_len);
-      goto error;
+      get_auth_algo (auth_alg_name, auth_key_len, &integ_alg);
+      if (integ_alg == IPSEC_INTEG_N_ALG)
+	{
+	  NL_XFRM_ERR ("Invalid/Unsupported integ algo: %s keylen: %u",
+		       auth_alg_name, auth_key_len);
+	  goto error;
+	}
+      ik.len = auth_key_len / 8;
+      clib_memcpy_fast (ik.data, (u8 *) auth_key, (auth_key_len / 8));
     }
-  ik.len = auth_key_len / 8;
-  clib_memcpy_fast (ik.data, (u8 *) auth_key, (auth_key_len / 8));
 
   get_crypto_algo (alg_name, key_len, &crypto_alg);
   if (crypto_alg == IPSEC_CRYPTO_N_ALG)
