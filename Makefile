@@ -119,6 +119,11 @@ DEB_DEPENDS += nasm libnuma-dev # for make-ext-deps
 DEB_DEPENDS += libnl-xfrm-3-200 # for linux-cp XFRM extension
 DEB_DEPENDS += libunwind8 # for linux-cp XFRM extension
 
+# Conditional dependencies based on build options
+ifneq ($(VPP_ENABLE_SYSTEMD_NOTIFY),)
+DEB_DEPENDS += libsystemd-dev
+endif
+
 LIBFFI=libffi6 # works on all but 20.04 and debian-testing
 ifeq ($(OS_VERSION_ID),24.04)
 	DEB_DEPENDS += libssl-dev
@@ -176,6 +181,11 @@ RPM_DEPENDS += elfutils-libelf-devel libpcap-devel
 RPM_DEPENDS += libnl3-devel libmnl-devel
 RPM_DEPENDS += nasm
 RPM_DEPENDS += socat
+
+# Conditional dependencies based on build options
+ifneq ($(VPP_ENABLE_SYSTEMD_NOTIFY),)
+RPM_DEPENDS += systemd-devel
+endif
 
 ifeq ($(OS_ID),fedora)
 	RPM_DEPENDS += dnf-utils
