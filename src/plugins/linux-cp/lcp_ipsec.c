@@ -667,6 +667,10 @@ nl_xfrm_sa_del (struct xfrmnl_sa *sa)
   is_outb =
     lcp_xfrm_get_sa_direction (&saddr.ip, &daddr.ip, &sw_if_index, is_ip6);
 
+  /* Skip SA deletion if no matching VPP interface found */
+  if (sw_if_index == ~0)
+    return;
+
   if (IS_ROUTE_MODE_ENABLED)
     lcp_xfrm_update_tunnel (&saddr, &daddr, is_outb, id, is_ip6, sa);
   else if ((sw_if_index != ~0) && (is_outb == 0))
@@ -1078,6 +1082,10 @@ nl_xfrm_sa_add (struct xfrmnl_sa *sa)
 
   dir =
     lcp_xfrm_get_sa_direction (&saddr.ip, &daddr.ip, &sw_if_index, is_ipv6);
+
+  /* Skip SA creation if no matching VPP interface found */
+  if (sw_if_index == ~0)
+    goto error;
 
   if (!dir)
     flags |= IPSEC_SA_FLAG_IS_INBOUND;
