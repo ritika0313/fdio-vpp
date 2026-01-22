@@ -27,7 +27,7 @@ if(VPP_ENABLE_SYSTEMD_NOTIFY)
   # Check for systemd library
   vpp_find_path(SYSTEMD_INCLUDE_DIR systemd/sd-daemon.h)
   vpp_find_library(SYSTEMD_LIB NAMES systemd)
-  
+ 
   if(SYSTEMD_INCLUDE_DIR AND SYSTEMD_LIB)
     message(STATUS "systemd found at ${SYSTEMD_LIB}")
     set(SYSTEMD_NOTIFY_ENABLED 1 CACHE STRING "systemd notify enabled")

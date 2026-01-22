@@ -160,7 +160,7 @@ pppoe_show_cp_command_fn (vlib_main_t * vm,
       vlib_cli_output (vm, "No PPPoE control plane interface configured.");
       return 0;
     }
-  
+ 
   vlib_cli_output (vm, "%-20s%-20s", "Dataplane Interface", "Control Interface");
   vlib_cli_output (vm, "%-20s%-20s", "-------------------", "-----------------");
 

@@ -27,9 +27,11 @@ add_vpp_plugin(dhcp
   dhcp6_pd_client_cp_api.c
   dhcp6_pd_client_dp.c
   dhcp6_proxy_node.c
+  ip6_icmp_ra_punt.c
 
   MULTIARCH_SOURCES
   dhcp_client_detect.c
+  ip6_icmp_ra_punt.c
 
   API_FILES
   dhcp.api
