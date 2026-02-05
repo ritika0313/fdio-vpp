@@ -44,9 +44,6 @@ pppoe_add_del_cp (u32 cp_if_index, u32 dp_if_index, u8 is_add)
 	}
     }
 
-  vnet_feature_enable_disable ("device-input", "pppoe-input", cp_if_index,
-			       is_add, 0, 0);
-
   if (is_add)
     {
       if (dp_if_index < vec_len (pem->cp_if_index_by_sw_if_index) &&
