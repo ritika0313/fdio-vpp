@@ -161,6 +161,14 @@ icmp_match_in2out_det (vlib_node_runtime_t * node,
 	}
     }
 
+  // Check for identity mapping before translation
+  if (PREDICT_FALSE (
+	det44_identity_mapping_match (in_addr, protocol, in_port) != 0))
+    {
+      *dont_translate = 1;
+      goto out;
+    }
+
   mp0 = snat_det_map_by_user (&in_addr);
   if (PREDICT_FALSE (!mp0))
     {
@@ -493,6 +501,16 @@ VLIB_NODE_FN (det44_in2out_node) (vlib_main_t * vm,
 	  goto trace0;
 	}
 
+      // Check for identity mapping
+      if (PREDICT_FALSE (det44_identity_mapping_match (
+			   ip0->src_address, proto0, tcp0->src) != 0))
+	{
+	  // Identity mapping found - bypass NAT translation
+	  // Set TX FIB to outside FIB for proper routing
+	  vnet_buffer (b0)->sw_if_index[VLIB_TX] = dm->outside_fib_index;
+	  goto trace0;
+	}
+
       mp0 = snat_det_map_by_user (&ip0->src_address);
       if (PREDICT_FALSE (!mp0))
 	{
@@ -663,6 +681,16 @@ VLIB_NODE_FN (det44_in2out_node) (vlib_main_t * vm,
 	  next1 = det44_icmp_in2out (b1, ip1, icmp1, sw_if_index1,
 				     rx_fib_index1, node, next1,
 				     thread_index, &ses1, &mp1);
+	  goto trace1;
+	}
+
+      // Check for identity mapping
+      if (PREDICT_FALSE (det44_identity_mapping_match (
+			   ip1->src_address, proto1, tcp1->src) != 0))
+	{
+	  // Identity mapping found - bypass NAT translation
+	  // Set TX FIB to outside FIB for proper routing
+	  vnet_buffer (b1)->sw_if_index[VLIB_TX] = dm->outside_fib_index;
 	  goto trace1;
 	}
 
@@ -864,6 +892,16 @@ VLIB_NODE_FN (det44_in2out_node) (vlib_main_t * vm,
 	  next0 = det44_icmp_in2out (b0, ip0, icmp0, sw_if_index0,
 				     rx_fib_index0, node, next0,
 				     thread_index, &ses0, &mp0);
+	  goto trace00;
+	}
+
+      // Check for identity mapping
+      if (PREDICT_FALSE (det44_identity_mapping_match (
+			   ip0->src_address, proto0, tcp0->src) != 0))
+	{
+	  // Identity mapping found - bypass NAT translation
+	  // Set TX FIB to outside FIB for proper routing
+	  vnet_buffer (b0)->sw_if_index[VLIB_TX] = dm->outside_fib_index;
 	  goto trace00;
 	}
 

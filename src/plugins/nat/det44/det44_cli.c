@@ -687,6 +687,168 @@ VLIB_CLI_COMMAND (det44_show_interfaces_command, static) =
   .function = det44_show_interfaces_command_fn,
 };
 
+/*?
+ * @cliexpar
+ * @cliexstart{det44 add identity mapping}
+ * Create identity mapping which allows traffic to pass through
+ * NAT without translation.
+ * To create identity mapping for address 10.0.0.3 use:
+ *  vpp# det44 add identity mapping 10.0.0.3
+ * To create identity mapping for address 10.0.0.3 port 3606 use:
+ *  vpp# det44 add identity mapping 10.0.0.3 tcp 3606
+ * To delete identity mapping use:
+ *  vpp# det44 add identity mapping 10.0.0.3 del
+ * @cliexend
+?*/
+static clib_error_t *
+det44_add_identity_mapping_command_fn (vlib_main_t *vm,
+				       unformat_input_t *input,
+				       vlib_cli_command_t *cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  clib_error_t *error = 0;
+  ip4_address_t addr;
+  nat_protocol_t proto = NAT_PROTOCOL_OTHER;
+  u32 port = 0;
+  u8 is_add = 1;
+  u8 addr_set = 0;
+  u8 port_set = 0;
+  u32 flags = 0;
+  u8 *tag = 0;
+  int rv;
+
+  if (!unformat_user (input, unformat_line_input, line_input))
+  return clib_error_return (0, DET44_EXPECTED_ARGUMENT);
+
+  while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
+  {
+    if (unformat (line_input, "%U", unformat_ip4_address, &addr))
+	{
+	  addr_set = 1;
+	}
+    else if (unformat (line_input, "%U %u", unformat_nat_protocol, &proto,
+		       &port))
+	{
+	  port_set = 1;
+	}
+    else if (unformat (line_input, "tag %s", &tag))
+	;
+    else if (unformat (line_input, "del"))
+	{
+	  is_add = 0;
+	}
+    else
+	{
+	  error = clib_error_return (0, "unknown input: '%U'",
+				     format_unformat_error, line_input);
+	  goto done;
+	}
+  }
+
+  if (!addr_set)
+  {
+    error = clib_error_return (0, "missing required parameter: address");
+    goto done;
+  }
+
+  if (!port_set)
+  {
+    flags |= DET44_FLAG_ADDR_ONLY;
+    proto = 0;
+    port = 0;
+  }
+  else
+  {
+    if (port < 1 || port > 65535)
+	{
+	  error = clib_error_return (
+	    0, "invalid port number: %u (must be 1-65535)", port);
+	  goto done;
+	}
+    port = clib_host_to_net_u16 (port);
+  }
+
+  rv = det44_add_del_identity_mapping (addr, proto, port, is_add, flags, tag);
+  switch (rv)
+  {
+  case VNET_API_ERROR_UNSUPPORTED:
+    error = clib_error_return (0, "DET44 plugin is not enabled.");
+    break;
+  case VNET_API_ERROR_NO_SUCH_ENTRY:
+    error = clib_error_return (0, "Identity mapping does not exist.");
+    break;
+  case VNET_API_ERROR_VALUE_EXIST:
+    error = clib_error_return (0, "Identity mapping already exists.");
+    break;
+  default:
+    break;
+  }
+
+done:
+  unformat_free (line_input);
+  if (tag)
+  vec_free (tag);
+  return error;
+}
+
+/*?
+ * @cliexpar
+ * @cliexstart{show det44 identity mappings}
+ * Show DET44 identity mappings
+ * vpp# show det44 identity mappings
+ * @cliexend
+?*/
+static clib_error_t *
+det44_show_identity_mappings_command_fn (vlib_main_t *vm,
+					 unformat_input_t *input,
+					 vlib_cli_command_t *cmd)
+{
+  det44_main_t *dm = &det44_main;
+  det44_identity_mapping_t *m;
+
+  if (vec_len (dm->identity_mappings) == 0)
+  {
+    vlib_cli_output (vm, "DET44 identity mappings: none");
+    return 0;
+  }
+
+  vlib_cli_output (
+    vm, "DET44 identity mappings (inside vrf %u):",
+    fib_table_get_table_id (dm->inside_fib_index, FIB_PROTOCOL_IP4));
+
+  vec_foreach (m, dm->identity_mappings)
+  {
+    if (m->flags & DET44_FLAG_ADDR_ONLY)
+	{
+	  vlib_cli_output (vm, "  %U%s%s", format_ip4_address, &m->addr,
+			   m->tag ? " tag: " : "",
+			   m->tag ? (char *) m->tag : "");
+	}
+    else
+	{
+	  vlib_cli_output (
+	    vm, "  %U %U %u%s%s", format_ip4_address, &m->addr,
+	    format_nat_protocol, m->proto, clib_net_to_host_u16 (m->port),
+	    m->tag ? " tag: " : "", m->tag ? (char *) m->tag : "");
+	}
+  }
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (det44_add_identity_mapping_command, static) = {
+  .path = "det44 add identity mapping",
+  .function = det44_add_identity_mapping_command_fn,
+  .short_help = "det44 add identity mapping <ip4-addr> [<protocol> <port>] "
+		"[tag <string>] [del]",
+};
+
+VLIB_CLI_COMMAND (det44_show_identity_mappings_command, static) = {
+  .path = "show det44 identity mappings",
+  .short_help = "show det44 identity mappings",
+  .function = det44_show_identity_mappings_command_fn,
+};
+
 /*
  * fd.io coding-style-patch-verification: ON
  *

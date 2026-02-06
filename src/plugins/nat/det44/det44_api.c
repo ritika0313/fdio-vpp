@@ -595,6 +595,93 @@ vl_api_nat_det_session_dump_t_handler (vl_api_nat_det_session_dump_t * mp)
     }
 }
 
+static void
+vl_api_det44_add_del_identity_mapping_t_handler (
+  vl_api_det44_add_del_identity_mapping_t *mp)
+{
+  det44_main_t *dm = &det44_main;
+  vl_api_det44_add_del_identity_mapping_reply_t *rmp;
+  int rv = 0;
+  ip4_address_t addr;
+  nat_protocol_t proto = NAT_PROTOCOL_OTHER;
+  u16 port = 0;
+  u32 flags = 0;
+  u8 *tag = 0;
+
+  clib_memcpy (&addr, mp->addr, 4);
+  if (mp->flags & NAT_API_IS_ADDR_ONLY)
+    {
+      flags |= DET44_FLAG_ADDR_ONLY;
+    }
+  else
+    {
+      proto = ip_proto_to_nat_proto (mp->protocol);
+      port = mp->port;
+    }
+
+  if (mp->is_add)
+    {
+      mp->tag[sizeof (mp->tag) - 1] = 0;
+      if (mp->tag[0])
+	{
+	  tag = format (0, "%s", mp->tag);
+	  vec_terminate_c_string (tag);
+	}
+    }
+
+  rv =
+    det44_add_del_identity_mapping (addr, proto, port, mp->is_add, flags, tag);
+
+  if (tag)
+    vec_free (tag);
+
+  REPLY_MACRO (VL_API_DET44_ADD_DEL_IDENTITY_MAPPING_REPLY);
+}
+
+static void
+send_det44_identity_mapping_details (det44_identity_mapping_t *m,
+				     vl_api_registration_t *reg, u32 context)
+{
+  det44_main_t *dm = &det44_main;
+  vl_api_det44_identity_mapping_details_t *rmp;
+
+  rmp = vl_msg_api_alloc (sizeof (*rmp));
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id =
+    ntohs (VL_API_DET44_IDENTITY_MAPPING_DETAILS + dm->msg_id_base);
+
+  clib_memcpy (rmp->addr, &m->addr, 4);
+  rmp->protocol = nat_proto_to_ip_proto (m->proto);
+  rmp->port = m->port;
+  rmp->flags = 0;
+  if (m->flags & DET44_FLAG_ADDR_ONLY)
+    rmp->flags |= NAT_API_IS_ADDR_ONLY;
+
+  rmp->context = context;
+  if (m->tag)
+    strncpy ((char *) rmp->tag, (char *) m->tag, sizeof (rmp->tag) - 1);
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+vl_api_det44_identity_mapping_dump_t_handler (
+  vl_api_det44_identity_mapping_dump_t *mp)
+{
+  det44_main_t *dm = &det44_main;
+  vl_api_registration_t *reg;
+  det44_identity_mapping_t *m;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+  if (!reg)
+    return;
+
+  vec_foreach (m, dm->identity_mappings)
+    {
+      send_det44_identity_mapping_details (m, reg, mp->context);
+    }
+}
+
 /* API definitions */
 #include <vnet/format_fns.h>
 #include <nat/det44/det44.api.c>

@@ -187,6 +187,148 @@ det44_reset_timeouts ()
   nat_reset_timeouts (&dm->timeouts);
 }
 
+/**
+ * @brief Add/delete DET44 identity mapping
+ *
+ * Create identity mapping which allows traffic to pass through NAT
+ * without translation.
+ *
+ * @param addr     IP address.
+ * @param proto    L4 protocol.
+ * @param port     L4 port number.
+ * @param is_add   If 0 delete, otherwise add.
+ * @param flags    Mapping flags (DET44_FLAG_ADDR_ONLY).
+ * @param tag      Opaque string tag.
+ *
+ * @return 0 on success, non-zero value otherwise.
+ */
+int
+det44_add_del_identity_mapping (ip4_address_t addr, nat_protocol_t proto,
+				u16 port, u8 is_add, u32 flags, u8 *tag)
+{
+  det44_main_t *dm = &det44_main;
+  det44_identity_mapping_t *m;
+
+  if (!dm->enabled)
+    {
+    det44_log_err ("det44 plugin is not enabled");
+    return VNET_API_ERROR_UNSUPPORTED;
+    }
+
+  if (is_add)
+    {
+    // Check if identity mapping already exists
+    vec_foreach (m, dm->identity_mappings)
+      {
+	if (m->addr.as_u32 == addr.as_u32 && m->proto == proto &&
+	    m->port == port)
+	  {
+	    // Allow tag add/update for existing identity mapping
+	    if (tag)
+	      {
+		if (m->tag)
+		  vec_free (m->tag);
+		m->tag = format (0, "%s", tag);
+		vec_terminate_c_string (m->tag);
+		det44_log_info ("identity mapping tag updated: %U proto %u "
+				"port %u tag: %s",
+				format_ip4_address, &addr, proto,
+				clib_net_to_host_u16 (port), (char *) tag);
+		return 0;
+	      }
+
+	    det44_log_err ("identity mapping already exists");
+	    return VNET_API_ERROR_VALUE_EXIST;
+	  }
+      }
+
+    // Add new identity mapping
+    vec_add2 (dm->identity_mappings, m, 1);
+    clib_memset (m, 0, sizeof (*m));
+    m->addr.as_u32 = addr.as_u32;
+    m->proto = proto;
+    m->port = port;
+    m->flags = flags;
+    if (tag)
+      {
+	m->tag = format (0, "%s", tag);
+	vec_terminate_c_string (m->tag);
+      }
+
+    det44_log_info ("identity mapping added: %U proto %u port %u%s%s",
+		    format_ip4_address, &addr, proto,
+		    clib_net_to_host_u16 (port), tag ? " tag: " : "",
+		    tag ? (char *) tag : "");
+    }
+  else
+    {
+    // Delete identity mapping
+    u32 i;
+    u8 found = 0;
+
+    for (i = 0; i < vec_len (dm->identity_mappings); i++)
+      {
+	m = dm->identity_mappings + i;
+	if (m->addr.as_u32 == addr.as_u32 && m->proto == proto &&
+	    m->port == port)
+	  {
+	    if (m->tag)
+	      vec_free (m->tag);
+	    vec_del1 (dm->identity_mappings, i);
+	    found = 1;
+	    det44_log_info ("identity mapping deleted: %U proto %u port %u ",
+			    format_ip4_address, &addr, proto,
+			    clib_net_to_host_u16 (port));
+	    break;
+	  }
+      }
+
+    if (!found)
+      {
+	det44_log_err ("identity mapping does not exist");
+	return VNET_API_ERROR_NO_SUCH_ENTRY;
+      }
+    }
+
+  return 0;
+}
+
+/**
+ * @brief Match DET44 identity mapping.
+ *
+ * @param addr  IP address.
+ * @param proto L4 protocol.
+ * @param port  L4 port number.
+ *
+ * @return identity mapping data structure on match, otherwise NULL.
+ */
+det44_identity_mapping_t *
+det44_identity_mapping_match (ip4_address_t addr, nat_protocol_t proto,
+			      u16 port)
+{
+  det44_main_t *dm = &det44_main;
+  det44_identity_mapping_t *m;
+
+  vec_foreach (m, dm->identity_mappings)
+    {
+    if (m->addr.as_u32 == addr.as_u32)
+      {
+	// Check for address-only mapping
+	if (m->flags & DET44_FLAG_ADDR_ONLY)
+	  {
+	    return m;
+	  }
+	// Check for address and port mapping
+	else if (m->proto == proto && m->port == port)
+	  {
+	    return m;
+	  }
+      }
+    }
+
+  return 0;
+}
+
 int
 det44_interface_add_del (u32 sw_if_index, u8 is_inside, int is_del)
 {
@@ -435,6 +577,16 @@ det44_plugin_disable ()
    {
     vec_free (mp->sessions);
   }
+
+  // Free identity mappings
+  det44_identity_mapping_t *m;
+  vec_foreach (m, dm->identity_mappings)
+  {
+    if (m->tag)
+      vec_free (m->tag);
+  }
+  vec_free (dm->identity_mappings);
+  dm->identity_mappings = NULL;
 
   det44_reset_timeouts ();
 

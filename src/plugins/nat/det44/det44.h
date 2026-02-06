@@ -119,6 +119,21 @@ typedef struct
   snat_det_session_t *sessions;
 } snat_det_map_t;
 
+/* Deterministic NAT Identity mapping */
+typedef struct
+{
+  /* IP address */
+  ip4_address_t addr;
+  /* protocol */
+  nat_protocol_t proto;
+  /* port */
+  u16 port;
+  /* flags */
+  u32 flags;
+  /* opaque string tag */
+  u8 *tag;
+} det44_identity_mapping_t;
+
 typedef struct
 {
   u32 sw_if_index;
@@ -155,6 +170,9 @@ typedef struct det44_main_s
 
   /* Deterministic NAT mappings */
   snat_det_map_t *det_maps;
+
+  /* Deterministic NAT Identity mappings */
+  det44_identity_mapping_t *identity_mappings;
 
   /* TCP MSS clamping */
   u16 mss_clamping;
@@ -196,6 +214,9 @@ extern det44_main_t det44_main;
 #define det44_log_debug(...)\
   vlib_log(VLIB_LOG_LEVEL_DEBUG, det44_main.log_class, __VA_ARGS__)
 
+/* Deterministic NAT flags */
+#define DET44_FLAG_ADDR_ONLY (1 << 0)
+
 /* Deterministic NAT interface flags */
 #define DET44_INTERFACE_FLAG_IS_INSIDE 1
 #define DET44_INTERFACE_FLAG_IS_OUTSIDE 2
@@ -236,6 +257,13 @@ format_function_t format_det_map_ses;
 
 int snat_det_add_map (ip4_address_t * in_addr, u8 in_plen,
 		      ip4_address_t * out_addr, u8 out_plen, int is_add);
+
+int det44_add_del_identity_mapping (ip4_address_t addr, nat_protocol_t proto,
+				    u16 port, u8 is_add, u32 flags, u8 *tag);
+
+det44_identity_mapping_t *det44_identity_mapping_match (ip4_address_t addr,
+							nat_protocol_t proto,
+							u16 port);
 
 /* icmp session match functions */
 u32 icmp_match_out2in_det (vlib_node_runtime_t * node,
