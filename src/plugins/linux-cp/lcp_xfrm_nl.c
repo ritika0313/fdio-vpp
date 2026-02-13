@@ -117,6 +117,7 @@ send_nl_msg (struct nlmsghdr *nl_hdr, unsigned int groups, u8 msg_type)
   nl_addr.nl_pid = 0;
 
   status = nl_sendmsg (sk_xfrm, nlmsg, &msg);
+  nlmsg_free (nlmsg);
   if (status < 0)
     {
       NL_ERROR ("Expiry send failed");
