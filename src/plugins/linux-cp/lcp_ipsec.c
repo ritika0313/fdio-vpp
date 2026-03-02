@@ -139,6 +139,7 @@ lcp_xfrm_extract_gcm_key_and_salt (ipsec_crypto_alg_t crypto_alg, void *key,
 /* Random seq number */
 static u32 g_seq = 0;
 static vlib_log_class_t lcp_xfrm_logger;
+static fib_source_t lcp_xfrm_fib_src;
 uword *lifetime_by_sa_id;
 static int config_bypass = 0;
 uword *tun_idx_by_sel_daddr;
@@ -1369,7 +1370,7 @@ fib_entry_cfg (ip_address_t *sel_daddr, u8 sel_daddr_prefix, u32 if_idx,
   u8 fib_index = 0;
   fib_route_path_t *rpath = NULL, path;
   fib_prefix_t rpfx;
-  fib_source_t fib_src = FIB_SOURCE_API;
+  fib_source_t fib_src = lcp_xfrm_fib_src;
 
   clib_memset (&path, 0, sizeof (path));
   path.frp_weight = 1;
@@ -1897,6 +1898,16 @@ lcp_xfrm_init (vlib_main_t *vm)
   lcp_xfrm_logger = vlib_log_register_class ("linux-cp", "ipsec");
 
   nl_xfrm_register_vft (&lcp_xfrm_vft);
+
+  /*
+   * Allocate a FIB source for XFRM route-mode entries with priority
+   * higher than lcp-rt (0x10) so that IPsec policy routes take
+   * precedence over regular netlink-propagated routes, mirroring the
+   * Linux kernel behaviour where XFRM policies are evaluated before
+   * the routing table.
+   */
+  lcp_xfrm_fib_src = fib_source_allocate (
+    "lcp-xfrm", FIB_SOURCE_PRIORITY_HI - 1, FIB_SOURCE_BH_API);
 
   lifetime_by_sa_id = hash_create (0, sizeof (uword));
   tun_idx_by_sel_daddr = hash_create (0, sizeof (uword));
