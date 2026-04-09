@@ -149,6 +149,69 @@ vl_api_pppoe_add_del_cp_t_handler (vl_api_pppoe_add_del_cp_t * mp)
   REPLY_MACRO(VL_API_PPPOE_ADD_DEL_CP_REPLY);
 }
 
+static void send_pppoe_cp_binding_details
+  (vl_api_registration_t * reg, u32 context, vl_api_interface_index_t cp_sw_if_index, vl_api_interface_index_t dp_sw_if_index, i32 rv)
+{
+  vl_api_pppoe_cp_binding_details_t *rmp;
+  pppoe_main_t *pem = &pppoe_main;
+
+  rmp = vl_msg_api_alloc (sizeof (*rmp));
+  clib_memset (rmp, 0, sizeof (*rmp));
+  rmp->_vl_msg_id = ntohs (pem->msg_id_base + VL_API_PPPOE_CP_BINDING_DETAILS);
+  rmp->context = context;
+
+  rmp->cp_sw_if_index = htonl(cp_sw_if_index);
+  rmp->dp_sw_if_index = htonl(dp_sw_if_index);
+  rmp->retval = htonl(rv);
+
+  vl_api_send_msg (reg, (u8 *) rmp);
+}
+
+static void
+vl_api_pppoe_cp_binding_dump_t_handler (vl_api_pppoe_cp_binding_dump_t * mp)
+{
+  pppoe_main_t *pem = &pppoe_main;
+  i32 rv = 0;
+  vl_api_interface_index_t sw_if_index = ntohl(mp->sw_if_index);
+  vl_api_registration_t *reg;
+
+  reg = vl_api_client_index_to_registration (mp->client_index);
+
+  if (~0 == mp->sw_if_index)
+    {
+      for (int i = 0; i < vec_len(pem->cp_if_index_by_sw_if_index); i++)
+	{
+	  if (pem->cp_if_index_by_sw_if_index[i] != ~0)
+	    send_pppoe_cp_binding_details(reg, mp->context, pem->cp_if_index_by_sw_if_index[i], i, rv);
+	}
+    }
+  else
+    {
+      vl_api_interface_index_t cp_if;
+      vl_api_interface_index_t dp_if;
+
+      cp_if = sw_if_index < vec_len(pem->cp_if_index_by_sw_if_index) ?
+	    pem->cp_if_index_by_sw_if_index[sw_if_index] : ~0;
+      dp_if = sw_if_index;
+
+      if (cp_if == ~0)
+	{
+	  cp_if = sw_if_index;
+	  dp_if = sw_if_index < vec_len(pem->dp_if_index_by_sw_if_index) ?
+	    pem->dp_if_index_by_sw_if_index[sw_if_index] : ~0;
+	}
+
+      if (dp_if == ~0)
+	{
+	  cp_if = ~0;
+	  dp_if = ~0;
+	  rv = VNET_API_ERROR_INVALID_INTERFACE;
+	}
+
+      send_pppoe_cp_binding_details(reg, mp->context, cp_if, dp_if, rv);
+    }
+}
+
 #include <pppoe/pppoe.api.c>
 static clib_error_t *
 pppoe_api_hookup (vlib_main_t * vm)

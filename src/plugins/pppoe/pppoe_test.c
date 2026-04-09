@@ -286,4 +286,40 @@ api_pppoe_add_del_cp (vat_main_t * vam)
   return ret;
 }
 
+static void
+vl_api_pppoe_cp_binding_details_t_handler (vl_api_pppoe_cp_binding_details_t * mp)
+{
+  vat_main_t *vam = &vat_main;
+  i32 rv = ntohl (mp->retval);
+  if (rv)
+    {
+      print (vam->ofp, "error: %d", rv);
+      return;
+    }
+  print (vam->ofp, "dp_sw_if_index: %d  cp_sw_if_index: %d",
+	ntohl (mp->dp_sw_if_index), ntohl (mp->cp_sw_if_index));
+}
+
+static int
+api_pppoe_cp_binding_dump (vat_main_t * vam)
+{
+  vl_api_pppoe_cp_binding_dump_t *mp;
+  unformat_input_t *i = vam->input;
+  int ret;
+  u32 sw_if_index = ~0;
+
+  /* Parse args required to build the message */
+  while (unformat_check_input (i) != UNFORMAT_END_OF_INPUT)
+    {
+      if (!unformat (i, "sw_if_index %d", &sw_if_index))
+	break;
+    }
+
+  M (PPPOE_CP_BINDING_DUMP, mp);
+  mp->sw_if_index = htonl(sw_if_index);
+  S (mp);
+  W (ret);
+  return ret;
+}
+
 #include <pppoe/pppoe.api_test.c>
