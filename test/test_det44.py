@@ -7,17 +7,19 @@ import scapy.compat
 from time import sleep
 from config import config
 from framework import VppTestCase
+from vpp_papi import VppEnum
 from ipfix import IPFIX, Set, Template, Data, IPFIXDecoder
 from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.inet import IPerror, UDPerror
 from scapy.layers.l2 import Ether
 from util import ppp
-from config import config
 
 
 @unittest.skipIf("nat" in config.excluded_plugins, "Exclude NAT plugin tests")
 class TestDET44(VppTestCase):
     """Deterministic NAT Test Cases"""
+
+    NAT_IS_ADDR_ONLY = VppEnum.vl_api_nat_config_flags_t.NAT_IS_ADDR_ONLY
 
     @classmethod
     def setUpClass(cls):
@@ -59,6 +61,7 @@ class TestDET44(VppTestCase):
         self.logger.info(self.vapi.cli("show det44 interfaces"))
         self.logger.info(self.vapi.cli("show det44 timeouts"))
         self.logger.info(self.vapi.cli("show det44 mappings"))
+        self.logger.info(self.vapi.cli("show det44 identity mappings"))
         self.logger.info(self.vapi.cli("show det44 sessions"))
 
     def verify_capture_in(self, capture, in_if):
@@ -245,6 +248,28 @@ class TestDET44(VppTestCase):
                     ppp("Unexpected or invalid packet (outside network):", packet)
                 )
                 raise
+
+    def find_identity_mapping(self, addr, protocol=None, port=None, addr_only=None):
+        mappings = self.vapi.det44_identity_mapping_dump()
+        for mapping in mappings:
+            if str(mapping.addr) != addr:
+                continue
+            if protocol is not None and mapping.protocol != protocol:
+                continue
+            if port is not None and mapping.port != port:
+                continue
+            if addr_only is not None:
+                mapping_is_addr_only = bool(mapping.flags & self.NAT_IS_ADDR_ONLY)
+                if mapping_is_addr_only != addr_only:
+                    continue
+            return mapping
+        return None
+
+    def get_identity_mappings_cli(self, log_output=True):
+        output = self.vapi.cli("show det44 identity mappings")
+        if log_output:
+            self.logger.info(output)
+        return output
 
     def test_deterministic_mode(self):
         """NAT plugin run deterministic mode"""
@@ -658,6 +683,253 @@ class TestDET44(VppTestCase):
 
         dms = self.vapi.det44_map_dump()
         self.assertEqual(0, dms[0].ses_num)
+
+    def test_identity_mapping_address_only(self):
+        """DET44 identity mapping add/dump/delete (address only)"""
+
+        addr = self.pg0.remote_ip4
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=1,
+            addr=addr,
+            protocol=0,
+            port=0,
+            flags=self.NAT_IS_ADDR_ONLY,
+            tag="addr-only",
+        )
+
+        mapping = self.find_identity_mapping(addr, addr_only=True)
+        self.assertIsNotNone(mapping)
+        self.assertEqual(str(mapping.addr), addr)
+        self.assertEqual(mapping.port, 0)
+        self.assertTrue(mapping.flags & self.NAT_IS_ADDR_ONLY)
+
+        cli_out = self.get_identity_mappings_cli()
+        self.assertIn("DET44 identity mappings", cli_out)
+        self.assertIn(addr, cli_out)
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=0,
+            addr=addr,
+            protocol=0,
+            port=0,
+            flags=self.NAT_IS_ADDR_ONLY,
+            tag="",
+        )
+
+        self.assertIsNone(self.find_identity_mapping(addr, addr_only=True))
+        self.assertIn(
+            "DET44 identity mappings: none",
+            self.get_identity_mappings_cli(log_output=False),
+        )
+
+    def test_identity_mapping_with_proto_port(self):
+        """DET44 identity mapping add/dump/delete (TCP + port)"""
+
+        addr = self.pg0.remote_ip4
+        proto_tcp = 6
+        port = 443
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=1,
+            addr=addr,
+            protocol=proto_tcp,
+            port=port,
+            flags=0,
+            tag="tcp-443",
+        )
+
+        mapping = self.find_identity_mapping(
+            addr, protocol=proto_tcp, port=port, addr_only=False
+        )
+        self.assertIsNotNone(mapping)
+        self.assertEqual(str(mapping.addr), addr)
+        self.assertEqual(mapping.protocol, proto_tcp)
+        self.assertEqual(mapping.port, port)
+        self.assertFalse(mapping.flags & self.NAT_IS_ADDR_ONLY)
+
+        cli_out = self.get_identity_mappings_cli()
+        self.assertIn("DET44 identity mappings", cli_out)
+        self.assertIn(addr, cli_out)
+        self.assertIn("tcp", cli_out.lower())
+        self.assertIn(str(port), cli_out)
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=0,
+            addr=addr,
+            protocol=proto_tcp,
+            port=port,
+            flags=0,
+            tag="",
+        )
+
+        self.assertIsNone(
+            self.find_identity_mapping(
+                addr, protocol=proto_tcp, port=port, addr_only=False
+            )
+        )
+        self.assertIn(
+            "DET44 identity mappings: none",
+            self.get_identity_mappings_cli(log_output=False),
+        )
+
+    def test_identity_mapping_bypass_translation_addr_only(self):
+        """DET44 identity mapping bypasses translation for matching flow"""
+
+        nat_ip = "10.0.0.10"
+        src_ip = self.pg0.remote_ip4
+        dst_ip = self.pg1.remote_ip4
+
+        self.vapi.det44_add_del_map(
+            is_add=1,
+            in_addr=src_ip,
+            in_plen=32,
+            out_addr=socket.inet_aton(nat_ip),
+            out_plen=32,
+        )
+        self.vapi.det44_interface_add_del_feature(
+            sw_if_index=self.pg0.sw_if_index, is_add=1, is_inside=1
+        )
+        self.vapi.det44_interface_add_del_feature(
+            sw_if_index=self.pg1.sw_if_index, is_add=1, is_inside=0
+        )
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=1,
+            addr=src_ip,
+            protocol=0,
+            port=0,
+            flags=self.NAT_IS_ADDR_ONLY,
+            tag="bypass",
+        )
+
+        cli_out = self.get_identity_mappings_cli()
+        self.assertIn("DET44 identity mappings", cli_out)
+        self.assertIn(src_ip, cli_out)
+
+        p = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IP(src=src_ip, dst=dst_ip)
+            / TCP(sport=1111, dport=self.tcp_external_port)
+        )
+        self.pg0.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg1.get_capture(1)
+        self.assertEqual(capture[0][IP].src, src_ip)
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=0,
+            addr=src_ip,
+            protocol=0,
+            port=0,
+            flags=self.NAT_IS_ADDR_ONLY,
+            tag="",
+        )
+
+        self.assertIn(
+            "DET44 identity mappings: none",
+            self.get_identity_mappings_cli(log_output=False),
+        )
+
+        p = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IP(src=src_ip, dst=dst_ip)
+            / TCP(sport=2222, dport=self.tcp_external_port)
+        )
+        self.pg0.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg1.get_capture(1)
+        self.assertEqual(capture[0][IP].src, nat_ip)
+
+    def test_identity_mapping_bypass_translation_with_proto_port(self):
+        """DET44 identity mapping bypasses only matching protocol+source port"""
+
+        nat_ip = "10.0.0.10"
+        src_ip = self.pg0.remote_ip4
+        dst_ip = self.pg1.remote_ip4
+        proto_tcp = 6
+        mapped_port = 443
+
+        self.vapi.det44_add_del_map(
+            is_add=1,
+            in_addr=src_ip,
+            in_plen=32,
+            out_addr=socket.inet_aton(nat_ip),
+            out_plen=32,
+        )
+        self.vapi.det44_interface_add_del_feature(
+            sw_if_index=self.pg0.sw_if_index, is_add=1, is_inside=1
+        )
+        self.vapi.det44_interface_add_del_feature(
+            sw_if_index=self.pg1.sw_if_index, is_add=1, is_inside=0
+        )
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=1,
+            addr=src_ip,
+            protocol=proto_tcp,
+            port=mapped_port,
+            flags=0,
+            tag="proto-port-bypass",
+        )
+
+        cli_out = self.get_identity_mappings_cli()
+        self.assertIn("DET44 identity mappings", cli_out)
+        self.assertIn(src_ip, cli_out)
+        self.assertIn("tcp", cli_out.lower())
+        self.assertIn(str(mapped_port), cli_out)
+
+        def send_and_verify(pkt, expected_src, remark):
+            self.vapi.cli("clear trace")
+            self.pg0.add_stream(pkt)
+            self.pg_enable_capture(self.pg_interfaces)
+            self.pg_start()
+            capture = self.pg1.get_capture(1, remark=remark)
+            actual_src = capture[0][IP].src
+            if actual_src != expected_src:
+                self.logger.error("Unexpected translated source in sub-case '%s'", remark)
+                self.logger.error(self.vapi.cli("show trace max 1000"))
+            self.assertEqual(actual_src, expected_src)
+
+        # Matching TCP source port should bypass translation
+        p = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IP(src=src_ip, dst=dst_ip)
+            / TCP(sport=mapped_port, dport=self.tcp_external_port)
+        )
+        send_and_verify(p, src_ip, "tcp-match-bypass")
+
+        # Non-matching source port should still be translated
+        p = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IP(src=src_ip, dst=dst_ip)
+            / TCP(sport=444, dport=self.tcp_external_port + 1)
+        )
+        send_and_verify(p, nat_ip, "tcp-port-mismatch-translate")
+
+        # Protocol mismatch (UDP same source port) should still be translated
+        p = (
+            Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac)
+            / IP(src=src_ip, dst=dst_ip)
+            / UDP(sport=mapped_port, dport=self.udp_external_port)
+        )
+        send_and_verify(p, nat_ip, "udp-proto-mismatch-translate")
+
+        self.vapi.det44_add_del_identity_mapping(
+            is_add=0,
+            addr=src_ip,
+            protocol=proto_tcp,
+            port=mapped_port,
+            flags=0,
+            tag="",
+        )
+
+        self.assertIn(
+            "DET44 identity mappings: none",
+            self.get_identity_mappings_cli(log_output=False),
+        )
 
     # TODO: ipfix needs to be separated from NAT base plugin
     @unittest.skipUnless(config.extended, "part of extended tests")
