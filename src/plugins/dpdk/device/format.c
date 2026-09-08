@@ -496,6 +496,17 @@ format_dpdk_device (u8 * s, va_list * args)
 
   s = format (s, "%Umax rx packet len: %d\n", format_white_space, indent + 2,
 	      di.max_rx_pktlen);
+#if RTE_VERSION >= RTE_VERSION_NUM(21, 11, 0, 0)
+  if (di.max_mtu == UINT16_MAX)
+    s = format (s, "%Umax mtu: unknown\n", format_white_space, indent + 2);
+  else
+    s = format (s, "%Umax mtu: %u\n", format_white_space, indent + 2,
+		di.max_mtu);
+  s = format (s, "%Udriver frame overhead: %u\n", format_white_space, indent + 2,
+	      xd->driver_frame_overhead);
+#else
+  s = format (s, "%Umax mtu: unknown\n", format_white_space, indent + 2);
+#endif
   s = format (s, "%Upromiscuous: unicast %s all-multicast %s\n",
 	      format_white_space, indent + 2,
 	      rte_eth_promiscuous_get (xd->port_id) ? "on" : "off",
