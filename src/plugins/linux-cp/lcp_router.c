@@ -420,7 +420,9 @@ lcp_router_link_add (struct rtnl_link *rl, void *ctx)
 	{
 	  u32 sub_phy_sw_if_index, sub_host_sw_if_index;
 	  const lcp_itf_pair_t *lip;
+	  lcp_itf_pair_t *sub_lip;
 	  int vlan;
+	  int rv;
 	  u8 *ns = 0; /* FIXME */
 
 	  lip = lcp_itf_pair_get (lipi);
@@ -428,8 +430,12 @@ lcp_router_link_add (struct rtnl_link *rl, void *ctx)
 	  vlan = rtnl_link_vlan_get_id (rl);
 
 	  /* create the vlan interface on the parent phy */
-	  if (vnet_create_sub_interface (lip->lip_phy_sw_if_index, vlan, 18, 0,
-					 vlan, &sub_phy_sw_if_index))
+	  lcp_itf_vlan_import_begin (lip->lip_phy_sw_if_index, vlan);
+	  rv = vnet_create_sub_interface (lip->lip_phy_sw_if_index, vlan, 18, 0,
+				  vlan, &sub_phy_sw_if_index);
+	  lcp_itf_vlan_import_end ();
+
+	  if (rv)
 	    {
 	      LCP_ROUTER_INFO ("failed create phy vlan: %s on %U",
 			       rtnl_link_get_name (rl),
@@ -449,6 +455,7 @@ lcp_router_link_add (struct rtnl_link *rl, void *ctx)
 			       rtnl_link_get_name (rl),
 			       format_vnet_sw_if_index_name, vnet_get_main (),
 			       lip->lip_host_sw_if_index);
+	      vnet_delete_sub_interface (sub_phy_sw_if_index);
 	      return;
 	    }
 
@@ -470,6 +477,13 @@ lcp_router_link_add (struct rtnl_link *rl, void *ctx)
 	  lcp_itf_pair_add (sub_host_sw_if_index, sub_phy_sw_if_index,
 			    if_namev, rtnl_link_get_ifindex (rl),
 			    lip->lip_host_type, ns);
+
+	  sub_lip = lcp_itf_pair_get (
+	    lcp_itf_pair_find_by_phy (sub_phy_sw_if_index));
+	  if (sub_lip && ctx)
+	    sub_lip->lip_create_ts =
+	      ((nl_msg_info_t *) ctx)->ts;
+
 	  if (up)
 	    vnet_sw_interface_admin_up (vnet_get_main (), sub_phy_sw_if_index);
 	  vnet_sw_interface_admin_up (vnet_get_main (), sub_host_sw_if_index);

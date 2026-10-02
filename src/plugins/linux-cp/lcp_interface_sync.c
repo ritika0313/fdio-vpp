@@ -22,6 +22,34 @@
 #include <vppinfra/linux/netns.h>
 #include <plugins/linux-cp/lcp_interface.h>
 
+typedef struct
+{
+  u32 parent_sw_if_index;
+  u32 sub_id;
+  u8 active;
+} lcp_vlan_import_t;
+
+static lcp_vlan_import_t lcp_vlan_import = {
+  .parent_sw_if_index = INDEX_INVALID,
+  .sub_id = INDEX_INVALID,
+};
+
+void
+lcp_itf_vlan_import_begin (u32 parent_sw_if_index, u32 sub_id)
+{
+  lcp_vlan_import.parent_sw_if_index = parent_sw_if_index;
+  lcp_vlan_import.sub_id = sub_id;
+  lcp_vlan_import.active = 1;
+}
+
+void
+lcp_itf_vlan_import_end (void)
+{
+  lcp_vlan_import.active = 0;
+  lcp_vlan_import.parent_sw_if_index = INDEX_INVALID;
+  lcp_vlan_import.sub_id = INDEX_INVALID;
+}
+
 /* helper function to copy forward all sw interface link state flags
  * MTU, and IP addresses into their counterpart LIP interface.
  *
@@ -372,6 +400,11 @@ lcp_itf_interface_add_del (vnet_main_t *vnm, u32 sw_if_index, u32 is_create)
 
   is_sub = vnet_sw_interface_is_sub (vnm, sw_if_index);
   if (!is_sub)
+    return NULL;
+
+  if (is_create && lcp_vlan_import.active &&
+      sw->sup_sw_if_index == lcp_vlan_import.parent_sw_if_index &&
+      sw->sub.id == lcp_vlan_import.sub_id)
     return NULL;
 
   LCP_ITF_PAIR_DBG ("interface_%s: sw %U parent %U", is_create ? "add" : "del",

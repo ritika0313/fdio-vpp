@@ -116,6 +116,9 @@ extern int lcp_itf_pair_create (u32 phy_sw_if_index, u8 *host_if_name,
 				lip_host_type_t host_if_type, u8 *ns,
 				u32 *host_sw_if_indexp);
 
+void lcp_itf_vlan_import_begin (u32 parent_sw_if_index, u32 sub_id);
+void lcp_itf_vlan_import_end (void);
+
 /**
  * Delete a LCP_ITF_PAIR
  */
