@@ -153,6 +153,8 @@ typedef struct nl_msg_info
 
 extern struct nl_cache *lcp_nl_get_cache (lcp_nl_obj_t t);
 extern int lcp_nl_drain_messages (void);
+/* Returns non-zero only while link-dump replies are being dispatched. */
+extern u8 lcp_nl_get_link_dump_ts (f64 *ts);
 extern void lcp_nl_set_buffer_size (u32 buf_size);
 extern void lcp_nl_set_batch_size (u32 batch_size);
 extern void lcp_nl_set_batch_delay (u32 batch_delay_ms);

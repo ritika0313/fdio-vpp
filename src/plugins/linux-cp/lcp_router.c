@@ -423,6 +423,7 @@ lcp_router_link_add (struct rtnl_link *rl, void *ctx)
 	  lcp_itf_pair_t *sub_lip;
 	  int vlan;
 	  int rv;
+	  f64 dump_ts;
 	  u8 *ns = 0; /* FIXME */
 
 	  lip = lcp_itf_pair_get (lipi);
@@ -480,9 +481,13 @@ lcp_router_link_add (struct rtnl_link *rl, void *ctx)
 
 	  sub_lip = lcp_itf_pair_get (
 	    lcp_itf_pair_find_by_phy (sub_phy_sw_if_index));
-	  if (sub_lip && ctx)
-	    sub_lip->lip_create_ts =
-	      ((nl_msg_info_t *) ctx)->ts;
+	  if (sub_lip)
+	    {
+	      if (ctx)
+	        sub_lip->lip_create_ts = ((nl_msg_info_t *) ctx)->ts;
+	      else if (lcp_nl_get_link_dump_ts (&dump_ts))
+	        sub_lip->lip_create_ts = dump_ts;
+	    }
 
 	  if (up)
 	    vnet_sw_interface_admin_up (vnet_get_main (), sub_phy_sw_if_index);

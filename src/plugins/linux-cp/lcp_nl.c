@@ -70,6 +70,12 @@ typedef enum nl_event_type_t_
   NL_EVENT_SYNC
 } nl_event_type_t;
 
+typedef struct nl_link_dump_t_
+{
+  f64 ts;
+  u8 active;
+} nl_link_dump_t;
+
 typedef struct nl_main
 {
 
@@ -91,6 +97,7 @@ typedef struct nl_main
   u32 sync_batch_limit;
   u32 sync_batch_delay_ms;
   u32 sync_attempt_delay_ms;
+  nl_link_dump_t link_dump;
 
   volatile bool is_syncing;
 
@@ -113,6 +120,10 @@ static nl_main_t nl_main = {
   .sync_batch_limit = NL_SYNC_BATCH_LIMIT_DEF,
   .sync_batch_delay_ms = NL_SYNC_BATCH_DELAY_MS_DEF,
   .sync_attempt_delay_ms = NL_SYNC_ATTEMPT_DELAY_MS_DEF,
+  .link_dump = {
+    .ts = 0,
+    .active = 0,
+  },
 };
 
 /* #define foreach_nl_nft_proto  \ */
@@ -405,9 +416,16 @@ lcp_nl_route_send_dump_req (nl_sock_type_t sock_type, int msg_type)
   nl_main_t *nm = &nl_main;
   struct nl_sock *sk_route = nm->sk_route_sync[sock_type];
   int err;
+  f64 dump_ts = 0;
   struct rtgenmsg rt_hdr = {
     .rtgen_family = AF_UNSPEC,
   };
+
+  if (sock_type == NL_SOCK_TYPE_LINK)
+    {
+      nm->link_dump.active = 0;
+      dump_ts = vlib_time_now (vlib_get_main ());
+    }
 
   err =
     nl_send_simple (sk_route, msg_type, NLM_F_DUMP, &rt_hdr, sizeof (rt_hdr));
@@ -417,10 +435,27 @@ lcp_nl_route_send_dump_req (nl_sock_type_t sock_type, int msg_type)
       NL_ERROR ("Unable to send a dump request: %s", nl_geterror (err));
     }
   else
-    NL_INFO ("Dump request sent via socket %d of type %d",
-	     nl_socket_get_fd (sk_route), sock_type);
+    {
+      if (sock_type == NL_SOCK_TYPE_LINK)
+	{
+	  nm->link_dump.ts = dump_ts;
+	  nm->link_dump.active = 1;
+        }
+      NL_INFO ("Dump request sent via socket %d of type %d",
+	       nl_socket_get_fd (sk_route), sock_type);
+    }
 
   return err;
+}
+
+u8
+lcp_nl_get_link_dump_ts (f64 *ts)
+{
+  if (!nl_main.link_dump.active || !ts)
+    return 0;
+
+  *ts = nl_main.link_dump.ts;
+  return 1;
 }
 
 static int
@@ -694,7 +729,9 @@ nl_route_process (vlib_main_t *vm, vlib_node_runtime_t *node,
 	goto sync_later;                                                      \
     }                                                                         \
   while (!is_done);                                                           \
-  nl_##fn##_sync_end ();
+  nl_##fn##_sync_end ();                                                      \
+  if (stype == NL_SOCK_TYPE_LINK)                                            \
+    nm->link_dump.active = 0;
 
 	    foreach_sock_type
 #undef _
@@ -708,6 +745,7 @@ nl_route_process (vlib_main_t *vm, vlib_node_runtime_t *node,
 	  wait_time = (vec_len (nm->nl_msg_queue) != 0) ? 1e-3 : DAY_F64;
 
 	sync_later:
+	  nm->link_dump.active = 0;
 	  /* Close netlink synchronization sockets */
 #define _(stype, mtype, tname, fn) lcp_nl_close_sync_socket (stype);
 	  foreach_sock_type
